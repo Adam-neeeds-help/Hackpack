@@ -44,8 +44,30 @@ SEND <hex> [repeats]    Transmit a hex byte payload, e.g. SEND AABBCC 5
 RAW <us,us,...> [reps]  Bit-bang a raw OOK pulse train (durations in
                          microseconds, alternating ON/OFF, starting ON)
                          e.g. RAW 320,320,640,320 3
+NOISE <mhz> <ms> [minUs] [maxUs]
+                         Emit randomized OOK noise for contained
+                         interference testing. See "Faraday box
+                         interference testing" below before using this.
 STATUS                  Print current frequency/modulation/rate
 ```
+
+## Faraday box interference testing
+
+`NOISE` is a broadband disruptor, not a normal transmit command — it exists
+only to test how a device of yours reacts to interference. **Only ever run
+it with the device under test and the CC1101's antenna fully enclosed in a
+shielded box/bag.** Operating it over the air is a jammer, which is illegal
+to operate in virtually every jurisdiction regardless of intent.
+
+```
+NOISE 433.92 2000        # 2s of noise at 433.92MHz, default pulse range
+NOISE 433.92 5000 20 100 # 5s, faster/denser pulses (20-100us)
+```
+
+Recommended workflow: place the receiver under test and the CC1101 antenna
+in the same sealed enclosure, run `NOISE`, and observe whether/when the
+receiver loses lock — then stop and remove the enclosure before any other
+transmit command.
 
 ### Example: replay a captured fixed-code remote
 
