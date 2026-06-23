@@ -23,6 +23,13 @@
  *                         bit-bang a raw OOK pulse train (durations in
  *                         microseconds, alternating ON/OFF starting with ON)
  *                         e.g. RAW 320,320,640,320 3
+ *   NOISE <mhz> <duration_ms> [min_us] [max_us]
+ *                         contained interference test: emits randomized
+ *                         OOK noise at <mhz> for <duration_ms>. ONLY run
+ *                         this with the device under test inside a shielded
+ *                         (Faraday) enclosure with the antenna contained -
+ *                         this is a broadband disruptor and must never be
+ *                         operated over the air. e.g. NOISE 433.92 2000
  *   STATUS                print current config
  */
 
@@ -109,6 +116,32 @@ void sendRawPulses(const String &csv, int repeats) {
   Serial.printf("OK raw sent %d pulses x%d\n", count, repeats);
 }
 
+void sendNoise(float mhz, uint32_t durationMs, uint32_t minUs, uint32_t maxUs) {
+  if (minUs < 20) minUs = 20;
+  if (maxUs < minUs) maxUs = minUs;
+
+  float savedFreq = currentFreqMHz;
+  currentFreqMHz = mhz;
+  currentModOOK = true;
+  applyRadioConfig();
+
+  pinMode(PIN_GDO0, OUTPUT);
+  uint32_t end = millis() + durationMs;
+  bool level = HIGH;
+  while (millis() < end) {
+    digitalWrite(PIN_GDO0, level);
+    uint32_t pulse = minUs + (esp_random() % (maxUs - minUs + 1));
+    delayMicroseconds(pulse);
+    level = !level;
+  }
+  digitalWrite(PIN_GDO0, LOW);
+
+  currentFreqMHz = savedFreq;
+  applyRadioConfig();
+
+  Serial.printf("OK noise burst done: %.3fMHz for %lums\n", mhz, (unsigned long)durationMs);
+}
+
 void handleCommand(String line) {
   line.trim();
   if (line.length() == 0) return;
@@ -155,6 +188,32 @@ void handleCommand(String line) {
     }
     if (repeats < 1) repeats = 1;
     sendRawPulses(csv, repeats);
+  } else if (cmd == "NOISE") {
+    float mhz = 433.92;
+    uint32_t durationMs = 1000;
+    uint32_t minUs = 50;
+    uint32_t maxUs = 500;
+
+    int n = 0;
+    int idx = 0;
+    String parts[4];
+    while (idx < (int)rest.length() && n < 4) {
+      int next = rest.indexOf(' ', idx);
+      parts[n++] = (next == -1) ? rest.substring(idx) : rest.substring(idx, next);
+      if (next == -1) break;
+      idx = next + 1;
+    }
+    if (n >= 1) mhz = parts[0].toFloat();
+    if (n >= 2) durationMs = (uint32_t)parts[1].toInt();
+    if (n >= 3) minUs = (uint32_t)parts[2].toInt();
+    if (n >= 4) maxUs = (uint32_t)parts[3].toInt();
+
+    if (mhz <= 0 || durationMs == 0) {
+      Serial.println("ERR usage: NOISE <mhz> <duration_ms> [min_us] [max_us]");
+    } else {
+      Serial.println("WARN: ensure device under test is fully enclosed in a shielded box before transmitting");
+      sendNoise(mhz, durationMs, minUs, maxUs);
+    }
   } else if (cmd == "STATUS") {
     printStatus();
   } else {
@@ -178,7 +237,7 @@ void setup() {
   ELECHOUSE_CC1101.Init();
   applyRadioConfig();
 
-  Serial.println("CC1101 RF Sender ready. Commands: FREQ MOD RATE SEND RAW STATUS");
+  Serial.println("CC1101 RF Sender ready. Commands: FREQ MOD RATE SEND RAW NOISE STATUS");
   printStatus();
 }
 
